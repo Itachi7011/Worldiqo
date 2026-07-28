@@ -3,14 +3,12 @@ import type { CategoryId, NewsEvent } from "./types";
 import { CATEGORY_KEYWORDS } from "./gdelt";
 
 /**
- * A second, independent live data source. GDELT is the primary source (it's
- * global and gives us map coordinates), but it's a single point of failure —
- * if it's rate-limited, blocked by a network, or just having a slow moment,
- * this pulls straight from major outlets' public RSS feeds instead. No API
- * key, no aggregator, just the same public RSS feeds outlined in the
- * original project spec.
+ * Independent live data sources beyond GDELT. All standard-RSS-shaped
+ * sources (outlet feeds, Google News editions, Bing News) share one parser
+ * and fallback pool; Reddit (JSON, not XML) is handled separately below.
  */
-const FEEDS = [
+const RSS_FEEDS = [
+  // Major outlets
   "http://feeds.bbci.co.uk/news/world/rss.xml",
   "https://www.aljazeera.com/xml/rss/all.xml",
   "https://feeds.npr.org/1004/rss.xml",
@@ -18,8 +16,18 @@ const FEEDS = [
   "https://rss.dw.com/rdf/rss-en-all",
   "https://www.france24.com/en/rss",
   "https://www.euronews.com/rss",
-  "https://timesofindia.indiatimes.com/rssfeeds/296589292.cms",
   "https://www.cbc.ca/webfeed/rss/rss-world",
+  // India priority
+  "https://timesofindia.indiatimes.com/rssfeeds/296589292.cms",
+  "https://www.thehindu.com/news/national/feeder/default.rss",
+  "https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml",
+  // Google News — keyless, per-edition (country/language aware), a
+  // genuinely different aggregation source from single-outlet feeds.
+  "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en",
+  "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
+  "https://news.google.com/rss?hl=en-GB&gl=GB&ceid=GB:en",
+  // Bing News — also keyless RSS, another independent aggregator.
+  "https://www.bing.com/news/search?q=world+news&format=RSS",
 ];
 
 // Rough "home country of the outlet" mapping — the same convention GDELT
@@ -36,7 +44,11 @@ const OUTLET_COUNTRY: Record<string, string> = {
   "france24.com": "France",
   "euronews.com": "France",
   "indiatimes.com": "India",
+  "thehindu.com": "India",
+  "hindustantimes.com": "India",
   "cbc.ca": "Canada",
+  "news.google.com": "Aggregator",
+  "bing.com": "Aggregator",
 };
 
 function countryForDomain(domain: string): string | null {
@@ -56,7 +68,7 @@ const TIMESPAN_MS: Record<string, number> = {
 
 const parser = new XMLParser({ ignoreAttributes: false });
 
-interface RssItem {
+export interface RssItem {
   title?: string;
   link?: string | { "@_href"?: string };
   pubDate?: string;
@@ -64,35 +76,47 @@ interface RssItem {
   description?: string;
 }
 
-function linkOf(item: RssItem): string | null {
+export function linkOf(item: RssItem): string | null {
   if (typeof item.link === "string") return item.link;
   if (item.link && typeof item.link === "object") return item.link["@_href"] ?? null;
   return null;
 }
 
-async function fetchOneFeed(url: string): Promise<RssItem[]> {
+/** Fetch and parse a single RSS/RDF/Atom feed, surfacing why it failed if it did. */
+export async function fetchSingleFeed(
+  url: string
+): Promise<{ items: RssItem[]; error: string | null }> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), 6000);
   try {
     const res = await fetch(url, {
       signal: controller.signal,
       cache: "no-store",
-      headers: { "User-Agent": "Worldiqo/1.0 (+https://worldiqo.app)" },
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Worldiqo/1.0)" },
     });
-    if (!res.ok) return [];
+    if (!res.ok) return { items: [], error: `Feed returned ${res.status}` };
     const xml = await res.text();
     const parsed = parser.parse(xml);
     const items =
-      parsed?.rss?.channel?.item ?? // RSS 2.0 (BBC, Al Jazeera, NPR, Guardian, France24, Euronews, ToI, CBC)
+      parsed?.rss?.channel?.item ?? // RSS 2.0 (most outlets, Google News, Bing News)
       parsed?.["rdf:RDF"]?.item ?? // RDF/RSS 1.0 (DW) — <item> is a sibling of <channel>, not nested
       parsed?.feed?.entry ?? // Atom
       [];
-    return Array.isArray(items) ? items : [items];
-  } catch {
-    return []; // one dead feed shouldn't take down the whole fallback
+    const arr = Array.isArray(items) ? items : [items];
+    return { items: arr, error: null };
+  } catch (err) {
+    return {
+      items: [],
+      error: err instanceof Error ? err.message : "Unknown error fetching feed",
+    };
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function fetchOneFeed(url: string): Promise<RssItem[]> {
+  const { items } = await fetchSingleFeed(url);
+  return items;
 }
 
 export async function fetchRssFallback(
@@ -101,14 +125,14 @@ export async function fetchRssFallback(
   timespan: string
 ): Promise<{ events: NewsEvent[]; error: string | null }> {
   try {
-    const results = await Promise.all(FEEDS.map(fetchOneFeed));
+    const results = await Promise.all(RSS_FEEDS.map(fetchOneFeed));
     const cutoff = Date.now() - (TIMESPAN_MS[timespan] ?? TIMESPAN_MS["24h"]);
     const keywords = category === "all" ? [] : CATEGORY_KEYWORDS[category] ?? [];
     const searchLower = search?.toLowerCase().trim() || null;
 
     const events: NewsEvent[] = [];
     results.forEach((items, feedIdx) => {
-      const domain = new URL(FEEDS[feedIdx]).hostname.replace(/^www\./, "");
+      const domain = new URL(RSS_FEEDS[feedIdx]).hostname.replace(/^www\./, "");
       const country = countryForDomain(domain);
       for (const item of items) {
         const link = linkOf(item);
@@ -146,6 +170,86 @@ export async function fetchRssFallback(
   }
 }
 
-function stripHtml(s: string): string {
+interface RedditPost {
+  data: { title: string; url: string; permalink: string; created_utc: number; subreddit: string };
+}
+
+/**
+ * Reddit's read-only JSON endpoints — keyless, no auth needed for public
+ * subreddit listings. A genuinely different kind of source (crowd-submitted
+ * links, not a wire service), which is exactly the point of a fallback.
+ */
+export async function fetchRedditFallback(
+  category: CategoryId,
+  search: string | null,
+  timespan: string
+): Promise<{ events: NewsEvent[]; error: string | null }> {
+  const subreddits = ["worldnews", "news"];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    const results = await Promise.all(
+      subreddits.map((sub) =>
+        fetch(`https://www.reddit.com/r/${sub}/top.json?limit=25&t=day`, {
+          signal: controller.signal,
+          cache: "no-store",
+          headers: { "User-Agent": "Worldiqo/1.0 (by /u/worldiqo)" },
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null)
+      )
+    );
+
+    const cutoff = Date.now() - (TIMESPAN_MS[timespan] ?? TIMESPAN_MS["24h"]);
+    const keywords = category === "all" ? [] : CATEGORY_KEYWORDS[category] ?? [];
+    const searchLower = search?.toLowerCase().trim() || null;
+    const events: NewsEvent[] = [];
+
+    for (const json of results) {
+      const posts: RedditPost[] = json?.data?.children ?? [];
+      for (const post of posts) {
+        const { title, url, permalink, created_utc, subreddit } = post.data;
+        if (!title || !url) continue;
+        const seenDate = new Date(created_utc * 1000);
+        if (seenDate.getTime() < cutoff) continue;
+
+        const haystack = title.toLowerCase();
+        if (keywords.length > 0 && !keywords.some((k) => haystack.includes(k))) continue;
+        if (searchLower && !haystack.includes(searchLower)) continue;
+
+        // Link to the original article when it's an external link post;
+        // fall back to the Reddit discussion for self-posts.
+        const finalUrl = url.startsWith("https://www.reddit.com") || url.startsWith("/r/")
+          ? `https://www.reddit.com${permalink}`
+          : url;
+
+        events.push({
+          id: `https://www.reddit.com${permalink}`,
+          title,
+          url: finalUrl,
+          domain: `r/${subreddit}`,
+          country: null,
+          language: "en",
+          seenDate: seenDate.toISOString(),
+          image: null,
+          category,
+          source: "reddit",
+        });
+      }
+    }
+
+    events.sort((a, b) => new Date(b.seenDate).getTime() - new Date(a.seenDate).getTime());
+    return { events, error: null };
+  } catch (err) {
+    return {
+      events: [],
+      error: err instanceof Error ? err.message : "Unknown error fetching Reddit",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function stripHtml(s: string): string {
   return s.replace(/<[^>]+>/g, "").trim();
 }

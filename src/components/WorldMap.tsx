@@ -4,14 +4,16 @@ import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import type { GeoPoint } from "@/lib/types";
 import { categoryById, CATEGORIES } from "@/lib/gdelt";
+import Spinner from "./Spinner";
 
 interface WorldMapProps {
   points: GeoPoint[];
   /** Show the category-color legend — most useful when viewing "All signals". */
   showLegend?: boolean;
+  loading?: boolean;
 }
 
-export default function WorldMap({ points, showLegend = false }: WorldMapProps) {
+export default function WorldMap({ points, showLegend = false, loading = false }: WorldMapProps) {
   return (
     <div className="relative h-full w-full">
       <MapContainer
@@ -78,6 +80,14 @@ export default function WorldMap({ points, showLegend = false }: WorldMapProps) 
           );
         })}
       </MapContainer>
+
+      {loading && points.length === 0 && (
+        <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-bg/40 pointer-events-none">
+          <div className="bg-panel/95 border border-border rounded-lg px-4 py-2.5">
+            <Spinner label="Loading live pins…" size="sm" />
+          </div>
+        </div>
+      )}
 
       {showLegend && (
         <div className="absolute bottom-4 left-4 z-[1000] bg-panel/95 border border-border rounded-lg px-3 py-2.5 backdrop-blur-sm">

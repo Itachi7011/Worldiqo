@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from "recharts";
 import TimeframePicker from "./TimeframePicker";
+import Spinner from "@/components/Spinner";
+import ErrorBanner from "@/components/ErrorBanner";
 import type { TimeframeId } from "@/lib/markets/types";
 
 const CURRENCIES = [
@@ -36,7 +38,8 @@ export default function MetalsView() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [quoteErrors, setQuoteErrors] = useState<string[]>([]);
   const [history, setHistory] = useState<{ date: string; value: number }[]>([]);
-  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historySource, setHistorySource] = useState<string | null>(null);
+  const [historyErrors, setHistoryErrors] = useState<string[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
   useEffect(() => {
@@ -68,11 +71,12 @@ export default function MetalsView() {
       .then((json) => {
         if (!cancelled) {
           setHistory(json.points ?? []);
-          setHistoryError(json.error ?? null);
+          setHistorySource(json.source ?? null);
+          setHistoryErrors(json.errors ?? []);
         }
       })
       .catch(() => {
-        if (!cancelled) setHistoryError("Failed to load historical data");
+        if (!cancelled) setHistoryErrors(["Failed to load historical data"]);
       })
       .finally(() => {
         if (!cancelled) setLoadingHistory(false);
@@ -105,9 +109,7 @@ export default function MetalsView() {
         </select>
       </div>
 
-      {quoteErrors.length > 0 && (
-        <p className="text-xs text-signal-amber">⚠ {quoteErrors.join(" · ")}</p>
-      )}
+      <ErrorBanner errors={quoteErrors} className="-mx-1" />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {(["XAU", "XAG"] as const).map((sym) => {
@@ -139,67 +141,71 @@ export default function MetalsView() {
         </div>
       </div>
 
-      <div className="bg-panel border border-border rounded-lg p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-          <p className="text-sm font-medium">
-            {metal === "XAU" ? "Gold" : "Silver"} history (USD)
+      <div className="bg-panel border border-border rounded-lg overflow-hidden">
+        <ErrorBanner errors={historyErrors} />
+        <div className="p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <p className="text-sm font-medium">
+              {metal === "XAU" ? "Gold" : "Silver"} history (USD)
+              {historySource && (
+                <span className="text-xs text-muted-2 font-normal ml-1.5">
+                  · via {historySource === "yahoo-futures" ? "Yahoo Finance (futures)" : historySource}
+                </span>
+              )}
+            </p>
+            <TimeframePicker value={timeframe} onChange={setTimeframe} />
+          </div>
+          <div className="h-56">
+            {loadingHistory ? (
+              <div className="h-full flex items-center justify-center">
+                <Spinner size="sm" />
+              </div>
+            ) : history.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-muted-2 text-center px-4">
+                No historical data available from either source for this timeframe
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={history} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="metalFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--signal-amber)" stopOpacity={0.5} />
+                      <stop offset="100%" stopColor="var(--signal-amber)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis
+                    dataKey="date"
+                    stroke="var(--muted-2)"
+                    fontSize={10}
+                    fontFamily="var(--font-mono)"
+                    tickLine={false}
+                    axisLine={false}
+                    minTickGap={50}
+                  />
+                  <YAxis
+                    domain={["auto", "auto"]}
+                    stroke="var(--muted-2)"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={false}
+                    width={50}
+                  />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke="var(--signal-amber)"
+                    strokeWidth={2}
+                    fill="url(#metalFill)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-2 mt-2">
+            History is sourced separately from live prices and always shown in USD.
           </p>
-          <TimeframePicker value={timeframe} onChange={setTimeframe} />
         </div>
-        <div className="h-56">
-          {loadingHistory ? (
-            <div className="h-full flex items-center justify-center text-xs text-muted-2">
-              Loading…
-            </div>
-          ) : historyError ? (
-            <div className="h-full flex items-center justify-center text-xs text-signal-amber text-center px-4">
-              ⚠ {historyError}
-            </div>
-          ) : history.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-xs text-muted-2">
-              No historical data available for this timeframe
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={history} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="metalFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--signal-amber)" stopOpacity={0.5} />
-                    <stop offset="100%" stopColor="var(--signal-amber)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis
-                  dataKey="date"
-                  stroke="var(--muted-2)"
-                  fontSize={10}
-                  fontFamily="var(--font-mono)"
-                  tickLine={false}
-                  axisLine={false}
-                  minTickGap={50}
-                />
-                <YAxis
-                  domain={["auto", "auto"]}
-                  stroke="var(--muted-2)"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={false}
-                  width={50}
-                />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Area
-                  type="monotone"
-                  dataKey="value"
-                  stroke="var(--signal-amber)"
-                  strokeWidth={2}
-                  fill="url(#metalFill)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-        <p className="text-[11px] text-muted-2 mt-2">
-          History is sourced separately from live prices and always shown in USD.
-        </p>
       </div>
     </div>
   );

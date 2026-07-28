@@ -5,7 +5,10 @@ import type { TimeframeId } from "@/lib/markets/types";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const DEFAULT_COMPARE = ["EUR", "GBP", "JPY", "INR", "CNY", "AUD", "CAD", "CHF", "BRL", "ZAR"];
+const DEFAULT_COMPARE = [
+  "INR", "USD", "EUR", "GBP", "JPY", "CNY", "AUD", "CAD", "CHF", "SGD",
+  "AED", "SAR", "BRL", "ZAR", "KRW", "MXN", "NZD", "SEK", "NOK", "HKD",
+];
 const VALID_TIMEFRAMES = new Set(["1w", "1m", "6m", "1y", "5y", "max"]);
 
 export async function GET(req: NextRequest) {
@@ -24,9 +27,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(history, { headers: { "Cache-Control": "no-store" } });
   }
 
+  const compareSymbols = DEFAULT_COMPARE.filter((c) => c !== base);
   const [currenciesResult, latestResult] = await Promise.all([
     fetchCurrencies(),
-    fetchLatestRates(base, DEFAULT_COMPARE),
+    fetchLatestRates(base, compareSymbols),
   ]);
 
   return NextResponse.json(
@@ -34,6 +38,7 @@ export async function GET(req: NextRequest) {
       base,
       date: latestResult.date,
       rates: latestResult.rates,
+      source: latestResult.source,
       currencies: currenciesResult.currencies,
       errors: [currenciesResult.error, latestResult.error].filter(Boolean),
     },

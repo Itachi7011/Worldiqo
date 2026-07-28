@@ -119,7 +119,7 @@ export function buildQuery(category: CategoryId, search: string | null): string 
   return parts.join(" ");
 }
 
-const TIMEOUT_MS = 9000;
+const TIMEOUT_MS = 7000;
 
 async function fetchWithTimeout(url: string): Promise<Response> {
   const controller = new AbortController();

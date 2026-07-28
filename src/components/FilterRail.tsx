@@ -16,8 +16,6 @@ const TIMESPANS: { id: string; label: string }[] = [
 ];
 
 interface FilterRailProps {
-  mode: "news" | "markets";
-  onModeChange: (m: "news" | "markets") => void;
   category: CategoryId;
   onCategoryChange: (c: CategoryId) => void;
   search: string;
@@ -93,8 +91,6 @@ function SaveSearchControl({
 }
 
 export default function FilterRail({
-  mode,
-  onModeChange,
   category,
   onCategoryChange,
   search,
@@ -107,32 +103,6 @@ export default function FilterRail({
 }: FilterRailProps) {
   return (
     <aside className="w-full lg:w-64 shrink-0 border-b lg:border-b-0 lg:border-r border-border bg-panel flex flex-col">
-      <div className="p-4 border-b border-border">
-        <div className="flex gap-1.5">
-          {(["news", "markets"] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => onModeChange(m)}
-              className={`flex-1 px-2.5 py-1.5 rounded-md text-xs font-mono uppercase tracking-wide transition-colors ${
-                mode === m
-                  ? "bg-signal-cyan/15 border border-signal-cyan text-signal-cyan"
-                  : "border border-border text-muted hover:text-fg hover:border-muted-2"
-              }`}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {mode === "markets" ? (
-        <div className="p-4">
-          <p className="text-sm text-muted leading-relaxed">
-            Live currency and precious metal prices, with historical charts.
-          </p>
-        </div>
-      ) : (
-        <>
       <div className="p-4 border-b border-border">
         <label className="text-xs uppercase tracking-wider text-muted mb-2 block">
           Search signals
@@ -171,7 +141,7 @@ export default function FilterRail({
           <span className="normal-case tracking-normal text-muted-2"> — auto falls back automatically</span>
         </p>
         <div className="flex gap-1.5 flex-wrap">
-          {(["auto", "gdelt", "rss"] as const).map((s) => (
+          {(["auto", "gdelt", "rss", "reddit"] as const).map((s) => (
             <button
               key={s}
               onClick={() => onSourceChange(s)}
@@ -185,10 +155,10 @@ export default function FilterRail({
             </button>
           ))}
         </div>
-        {source === "rss" && (
+        {(source === "rss" || source === "reddit") && (
           <p className="text-xs text-muted-2 mt-2 leading-snug">
-            RSS mode has no map coordinates — the map will be empty. Use GDELT
-            or Auto for pins.
+            {source === "rss" ? "RSS" : "Reddit"} mode has no map coordinates — the map will
+            be empty. Use GDELT or Auto for pins.
           </p>
         )}
       </div>
@@ -214,6 +184,26 @@ export default function FilterRail({
             </button>
           ))}
         </div>
+
+        <p className="text-xs uppercase tracking-wider text-muted mt-5 mb-2">
+          Jump to
+        </p>
+        <div className="flex flex-col gap-1">
+          {[
+            { href: "#markets-metals", label: "Gold & Silver" },
+            { href: "#markets-currency", label: "Currencies" },
+            { href: "#markets-stocks", label: "Shares" },
+            { href: "#news-charts", label: "Coverage charts" },
+          ].map((l) => (
+            <a
+              key={l.href}
+              href={l.href}
+              className="px-2.5 py-1.5 rounded-md text-sm text-muted hover:text-fg hover:bg-panel-raised/60 transition-colors"
+            >
+              {l.label}
+            </a>
+          ))}
+        </div>
       </div>
 
       <div className="p-4 border-t border-border flex flex-col gap-2">
@@ -222,8 +212,6 @@ export default function FilterRail({
           {eventCount} article{eventCount === 1 ? "" : "s"} in window
         </p>
       </div>
-        </>
-      )}
     </aside>
   );
 }

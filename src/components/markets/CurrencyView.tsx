@@ -10,6 +10,8 @@ import {
   Tooltip,
 } from "recharts";
 import TimeframePicker from "./TimeframePicker";
+import Spinner from "@/components/Spinner";
+import ErrorBanner from "@/components/ErrorBanner";
 import type { TimeframeId } from "@/lib/markets/types";
 
 const tooltipStyle = {
@@ -25,13 +27,15 @@ interface LatestState {
   rates: Record<string, number>;
   currencies: Record<string, string>;
   date: string | null;
+  source: string | null;
   errors: string[];
 }
 
 export default function CurrencyView() {
   const [base, setBase] = useState("USD");
-  const [target, setTarget] = useState("EUR");
+  const [target, setTarget] = useState("INR");
   const [timeframe, setTimeframe] = useState<TimeframeId>("1m");
+  const [search, setSearch] = useState("");
 
   const [latest, setLatest] = useState<LatestState | null>(null);
   const [history, setHistory] = useState<{ date: string; value: number }[]>([]);
@@ -45,7 +49,14 @@ export default function CurrencyView() {
         if (!cancelled) setLatest(json);
       })
       .catch(() => {
-        if (!cancelled) setLatest({ rates: {}, currencies: {}, date: null, errors: ["Failed to load rates"] });
+        if (!cancelled)
+          setLatest({
+            rates: {},
+            currencies: {},
+            date: null,
+            source: null,
+            errors: ["Failed to load rates"],
+          });
       });
     return () => {
       cancelled = true;
@@ -75,7 +86,23 @@ export default function CurrencyView() {
   }, [base, target, timeframe]);
 
   const currencyCodes = Object.keys(latest?.currencies ?? {}).sort();
-  const rateEntries = Object.entries(latest?.rates ?? {}).sort((a, b) => a[0].localeCompare(b[0]));
+  const PRIORITY = ["INR", "USD"];
+  const rateEntries = Object.entries(latest?.rates ?? {}).sort((a, b) => {
+    const aP = PRIORITY.indexOf(a[0]);
+    const bP = PRIORITY.indexOf(b[0]);
+    if (aP !== -1 || bP !== -1) return (aP === -1 ? 99 : aP) - (bP === -1 ? 99 : bP);
+    return a[0].localeCompare(b[0]);
+  });
+
+  const searchResults = search.trim()
+    ? currencyCodes
+        .filter(
+          (c) =>
+            c.toLowerCase().includes(search.toLowerCase()) ||
+            latest?.currencies[c]?.toLowerCase().includes(search.toLowerCase())
+        )
+        .slice(0, 8)
+    : [];
 
   return (
     <div className="flex flex-col gap-6">
@@ -96,33 +123,61 @@ export default function CurrencyView() {
             ))}
           </select>
         </div>
+        <div className="relative flex-1 min-w-[200px]">
+          <label className="text-xs uppercase tracking-wider text-muted mb-1.5 block">
+            Search any currency
+          </label>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="e.g. Thai Baht, PHP..."
+            className="w-full bg-panel-raised border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-signal-cyan"
+          />
+          {searchResults.length > 0 && (
+            <div className="absolute z-10 mt-1 w-full bg-panel-raised border border-border rounded-md overflow-hidden shadow-lg">
+              {searchResults.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => {
+                    setTarget(c);
+                    setSearch("");
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-panel flex items-center justify-between gap-2"
+                >
+                  <span>{c}</span>
+                  <span className="text-xs text-muted-2 truncate">{latest?.currencies[c]}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         {latest?.date && (
-          <p className="text-xs text-muted-2 font-mono">as of {latest.date}</p>
-        )}
-        {latest?.errors && latest.errors.length > 0 && (
-          <p className="text-xs text-signal-amber">⚠ {latest.errors.join(" · ")}</p>
+          <p className="text-xs text-muted-2 font-mono">
+            as of {latest.date}
+            {latest.source && <span className="ml-1">· via {latest.source}</span>}
+          </p>
         )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+      <ErrorBanner errors={latest?.errors ?? []} className="-mt-2 rounded-md overflow-hidden" />
+
+      <div className="flex gap-1 overflow-x-auto thin-scroll pb-1 -mx-1 px-1">
         {rateEntries.map(([code, rate]) => (
           <button
             key={code}
             onClick={() => setTarget(code)}
-            className={`bg-panel border rounded-lg p-3 text-left transition-colors ${
-              target === code ? "border-signal-cyan" : "border-border hover:border-muted-2"
+            className={`shrink-0 text-left rounded-md border px-3 py-2 transition-colors ${
+              target === code ? "border-signal-cyan bg-signal-cyan/10" : "border-border hover:border-muted-2"
             }`}
           >
-            <p className="text-xs font-mono text-muted-2">
+            <p className="text-[10px] font-mono text-muted-2 whitespace-nowrap">
               {base}/{code}
             </p>
-            <p className="font-display text-lg font-semibold mt-0.5">{rate.toFixed(4)}</p>
-            <p className="text-[11px] text-muted-2 truncate">{latest?.currencies[code]}</p>
+            <p className="text-sm font-semibold whitespace-nowrap">{rate.toFixed(4)}</p>
           </button>
         ))}
-        {rateEntries.length === 0 && (
-          <p className="text-sm text-muted col-span-full">Loading rates…</p>
-        )}
+        {rateEntries.length === 0 && <Spinner label="Loading rates…" size="sm" />}
       </div>
 
       <div className="bg-panel border border-border rounded-lg p-4">
@@ -134,8 +189,8 @@ export default function CurrencyView() {
         </div>
         <div className="h-56">
           {loadingHistory ? (
-            <div className="h-full flex items-center justify-center text-xs text-muted-2">
-              Loading…
+            <div className="h-full flex items-center justify-center">
+              <Spinner size="sm" />
             </div>
           ) : history.length === 0 ? (
             <div className="h-full flex items-center justify-center text-xs text-muted-2">

@@ -29,7 +29,17 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-full flex flex-col bg-bg text-fg font-sans">
+      {/*
+        suppressHydrationWarning on body: some browser extensions (e.g.
+        ColorZilla, Grammarly) inject attributes like cz-shortcut-listen
+        onto <body> before React hydrates. That's an extension modifying the
+        DOM, not a real server/client mismatch in this app, so silence just
+        this one known-harmless case rather than the whole tree.
+      */}
+      <body
+        className="min-h-full flex flex-col bg-bg text-fg font-sans"
+        suppressHydrationWarning
+      >
         <Providers>{children}</Providers>
       </body>
     </html>

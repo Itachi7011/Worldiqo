@@ -32,12 +32,38 @@ export async function fetchCurrencies(): Promise<{
 export async function fetchLatestRates(
   base: string,
   symbols: string[]
-): Promise<{ rates: Record<string, number>; date: string | null; error: string | null }> {
+): Promise<{ rates: Record<string, number>; date: string | null; source: string | null; error: string | null }> {
   const params = new URLSearchParams({ base, symbols: symbols.join(",") });
   const { data, error } = await fetchJson<{ rates: Record<string, number>; date: string }>(
     `${BASE}/latest?${params.toString()}`
   );
-  return { rates: data?.rates ?? {}, date: data?.date ?? null, error };
+  if (data?.rates) {
+    return { rates: data.rates, date: data.date, source: "frankfurter", error: null };
+  }
+
+  // Fallback: open.er-api.com — free, keyless, no historical time-series,
+  // but useful for keeping the live rates grid alive if Frankfurter/ECB is down.
+  const fallback = await fetchJson<{ rates?: Record<string, number>; time_last_update_utc?: string }>(
+    `https://open.er-api.com/v6/latest/${base}`
+  );
+  if (fallback.data?.rates) {
+    const rates = Object.fromEntries(
+      symbols.filter((s) => fallback.data!.rates![s] != null).map((s) => [s, fallback.data!.rates![s]])
+    );
+    return {
+      rates,
+      date: fallback.data.time_last_update_utc ?? null,
+      source: "open.er-api.com",
+      error: null,
+    };
+  }
+
+  return {
+    rates: {},
+    date: null,
+    source: null,
+    error: [error, fallback.error].filter(Boolean).join(" · ") || "Both rate sources failed",
+  };
 }
 
 function daysAgo(days: number): string {

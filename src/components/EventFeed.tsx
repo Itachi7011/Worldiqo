@@ -2,6 +2,8 @@
 
 import type { NewsEvent } from "@/lib/types";
 import { categoryById } from "@/lib/gdelt";
+import Spinner from "./Spinner";
+import ErrorBanner from "./ErrorBanner";
 
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -33,19 +35,13 @@ export default function EventFeed({ events, loading, errors }: EventFeedProps) {
         </span>
       </div>
 
-      {errors.length > 0 && (
-        <div className="px-4 py-2.5 bg-signal-amber/10 border-b border-signal-amber/20">
-          {errors.map((e, i) => (
-            <p key={i} className="text-xs text-signal-amber font-mono leading-snug">
-              ⚠ {e}
-            </p>
-          ))}
-        </div>
-      )}
+      <ErrorBanner errors={errors} />
 
       <div className="flex-1 overflow-y-auto thin-scroll divide-y divide-border">
         {loading && events.length === 0 && (
-          <div className="p-4 text-sm text-muted">Pulling live coverage…</div>
+          <div className="p-4">
+            <Spinner label="Pulling live coverage…" />
+          </div>
         )}
         {!loading && events.length === 0 && errors.length === 0 && (
           <div className="p-4 text-sm text-muted">

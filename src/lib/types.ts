@@ -16,7 +16,7 @@ export interface CategoryDef {
   query: string;
 }
 
-export type SourceId = "gdelt" | "rss";
+export type SourceId = "gdelt" | "rss" | "reddit";
 
 export interface NewsEvent {
   id: string;
